@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OhkanGame — 2013年の Flash ゲームを Rust に移植した</title>
+<meta name="description" content="2013年に Flash（ActionScript 3）で作った「OhkanGame」を Rust + macroquad で移植した。王冠を頭に10個積めばクリア。macOS（Apple Silicon）用の DMG を配布中。">
+<meta property="og:title" content="OhkanGame — Rust 移植版">
+<meta property="og:description" content="2013年に Flash で作ったゲームを Rust に移植した。王冠を頭に10個積め。90秒。">
+<meta property="og:image" content="https://tobisako.github.io/RustOhkanGame/clip-megami.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="g_ohkan.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+
+<style>
+/* ===== BlockFrame design tokens =====
+   Neobrutalist: pastel-neon color blocks + chunky black borders + hard offset shadows */
+:root{
+  --bg:#FFFFFF;
+  --ink:#000000;
+  --a1:#FE90E8;
+  --surf:#FFFDF5;
+  --bd:4px solid #000000;
+  --sh:8px 8px 0px #000000;
+  --sh-sm:5px 5px 0px #000000;
+  --rad:10px;
+  --hf:"Inter","Noto Sans JP",sans-serif;
+  --bf:"Space Grotesk","Noto Sans JP",sans-serif;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--bf); font-size:18px; line-height:1.75;
+  font-feature-settings:"palt" 1;
+  -webkit-font-smoothing:antialiased;
+}
+img,video{max-width:100%; display:block;}
+a{color:inherit;}
+.wrap{max-width:1040px; margin:0 auto; padding:0 24px;}
+
+/* ===== header ===== */
+header{position:sticky; top:0; z-index:50; background:var(--bg); border-bottom:var(--bd);}
+.nav{max-width:1040px; margin:0 auto; padding:12px 24px; display:flex; align-items:center; gap:14px;}
+.brand{display:flex; align-items:center; gap:10px; font-family:var(--hf); font-weight:900; font-size:22px; letter-spacing:-.01em; text-decoration:none;}
+.brand img{width:34px; height:auto;}
+.nav ul{margin:0 0 0 auto; padding:0; list-style:none; display:flex; gap:22px; align-items:center;}
+.nav a{font-size:16px; font-weight:700; text-decoration:none; padding:4px 0; border-bottom:3px solid transparent; white-space:nowrap;}
+.nav a:hover{border-bottom-color:var(--a1);}
+@media(max-width:720px){ .nav ul{gap:14px;} .nav a{font-size:14px;} .brand{font-size:18px;} }
+/* 幅が足りない端末では、ブランドを1行目・リンクを2行目に折り返す */
+@media(max-width:560px){
+  .nav{flex-wrap:wrap; gap:6px 12px; padding:10px 24px 12px;}
+  .nav ul{margin-left:0; width:100%; justify-content:space-between; gap:10px;}
+  .nav a{font-size:15px;}
+}
+
+/* ===== blocks / buttons ===== */
+.block{background:var(--surf); border:var(--bd); border-radius:var(--rad); box-shadow:var(--sh);}
+.btn{
+  display:inline-flex; align-items:center; gap:10px;
+  font-family:var(--hf); font-weight:900; font-size:19px; text-decoration:none;
+  padding:15px 26px; border:var(--bd); border-radius:var(--rad);
+  background:var(--surf); color:var(--ink); box-shadow:var(--sh);
+  transition:transform .08s ease, box-shadow .08s ease;
+}
+.btn:hover{transform:translate(3px,3px); box-shadow:var(--sh-sm);}
+.btn:active{transform:translate(8px,8px); box-shadow:0 0 0 #000;}
+.btn.primary{background:var(--a1);}
+.btn .sub{font-family:var(--bf); font-weight:500; font-size:14px; opacity:.75;}
+
+/* ===== ゲーム映像クリップ（9:16） ===== */
+.clip-frame{position:relative;}
+.clip-frame video{width:100%; border:var(--bd); border-radius:var(--rad); box-shadow:var(--sh); background:#000; position:relative; z-index:1;}
+/* 動画の背面に、右上へずらして敷くピンクの色面（BlockFrameのカラーブロック） */
+.clip-frame::before{
+  content:""; position:absolute; top:-14px; right:-14px; width:100%; height:100%;
+  background:var(--a1); border:var(--bd); border-radius:var(--rad); z-index:0;
+}
+.clip .cap{
+  margin-top:18px; font-size:15px; font-weight:700;
+  background:var(--bg); border:3px solid var(--ink); border-radius:6px; padding:6px 10px; display:inline-block;
+}
+
+/* ===== hero ===== */
+.hero{position:relative; overflow:hidden; padding:74px 0 66px; border-bottom:var(--bd);}
+.hero .deco{position:absolute; z-index:0; pointer-events:none;}
+.hero .wrap{position:relative; z-index:1;}
+.hero-grid{display:grid; grid-template-columns:1fr 300px; gap:56px; align-items:center;}
+h1{font-family:var(--hf); font-weight:900; font-size:74px; line-height:1.02; letter-spacing:-.03em; margin:0;}
+h1 .jp{display:block; font-size:32px; line-height:1.35; letter-spacing:-.01em; margin-top:18px;}
+h1 .jp mark{background:var(--a1); padding:2px 8px; border:3px solid var(--ink); border-radius:6px;}
+.lead{font-size:20px; line-height:1.8; margin:22px 0 0;}
+.cta{display:flex; flex-wrap:wrap; gap:16px; margin-top:32px;}
+.specs{display:flex; flex-wrap:wrap; gap:10px; margin-top:28px; padding:0; list-style:none;}
+.specs li{font-family:var(--hf); font-weight:700; font-size:15px; padding:6px 13px; border:3px solid var(--ink); border-radius:999px; background:var(--bg);}
+@media(max-width:900px){
+  .hero-grid{grid-template-columns:1fr; gap:44px;}
+  .hero-media{max-width:300px;}
+  .hero .deco{display:none;}
+}
+@media(max-width:860px){
+  h1{font-size:48px;}
+  h1 .jp{font-size:25px;}
+  .hero{padding:48px 0 44px;}
+}
+
+/* ===== section ===== */
+section.sec{padding:72px 0; border-bottom:var(--bd);}
+.sh{margin-bottom:34px;}
+.sh h2{font-family:var(--hf); font-weight:900; font-size:40px; line-height:1.2; letter-spacing:-.02em; margin:0; display:inline-block; border-bottom:8px solid var(--a1); padding-bottom:2px;}
+@media(max-width:860px){ .sh h2{font-size:30px;} }
+
+/* ===== 遊び方 ===== */
+.play{display:grid; grid-template-columns:1fr 300px; gap:56px; align-items:center;}
+.play p{margin:0 0 18px; font-size:19px;}
+.play .tbl{margin-top:28px;}
+.play b{background:var(--a1); border:3px solid var(--ink); border-radius:6px; padding:0 7px; font-family:var(--hf); font-weight:900;}
+@media(max-width:900px){ .play{grid-template-columns:1fr; gap:40px;} .play-media{max-width:300px;} }
+
+/* ===== 操作表 ===== */
+.tbl{width:100%; border-collapse:collapse; background:var(--surf); border:var(--bd); border-radius:var(--rad); box-shadow:var(--sh); overflow:hidden;}
+.tbl th,.tbl td{text-align:left; padding:16px 22px; border-bottom:3px solid var(--ink); font-size:18px;}
+.tbl tr:last-child td{border-bottom:0;}
+.tbl th{font-family:var(--hf); font-weight:900; font-size:16px; letter-spacing:.08em; background:var(--a1); border-bottom:var(--bd);}
+kbd{
+  font-family:var(--hf); font-weight:700; font-size:16px;
+  background:var(--bg); border:3px solid var(--ink); border-radius:6px;
+  box-shadow:3px 3px 0 var(--ink); padding:3px 10px; display:inline-block; margin:2px 4px 2px 0;
+}
+
+/* ===== 入れ方 ===== */
+.steps{display:grid; grid-template-columns:repeat(3,1fr); gap:22px; margin-bottom:30px;}
+@media(max-width:820px){ .steps{grid-template-columns:1fr;} }
+.step{padding:24px;}
+.step .n{font-family:var(--hf); font-weight:900; font-size:15px; letter-spacing:.1em; background:var(--a1); border:3px solid var(--ink); border-radius:6px; padding:2px 10px; display:inline-block; margin-bottom:12px;}
+.step h3{font-family:var(--hf); font-weight:900; font-size:20px; margin:0 0 8px;}
+.step p{margin:0; font-size:17px;}
+.note{border:var(--bd); border-left:12px solid var(--a1); border-radius:var(--rad); box-shadow:var(--sh); background:var(--surf); padding:20px 24px; font-size:18px;}
+/* 元画像が728px幅なので、拡大してぼやけないよう等倍以内に収める */
+.sec-shot{border:var(--bd); border-radius:var(--rad); box-shadow:var(--sh); overflow:hidden; background:var(--surf); max-width:728px; margin-top:26px;}
+.sec-shot img{width:100%;}
+.sec-shot .cap{border-top:var(--bd); padding:12px 18px; font-size:15px; font-weight:700;}
+
+/* ===== ソースから動かす ===== */
+.build p{font-size:19px; margin:0 0 14px; max-width:760px;}
+.build code{font-family:var(--hf); font-weight:700; font-size:17px; background:var(--surf); border:3px solid var(--ink); border-radius:6px; padding:1px 8px;}
+
+/* ===== footer ===== */
+footer{padding:52px 0 60px; background:var(--surf);}
+.fl{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:24px;}
+.fl a{font-family:var(--hf); font-weight:900; font-size:17px; text-decoration:none; border:var(--bd); border-radius:var(--rad); box-shadow:var(--sh-sm); background:var(--bg); padding:11px 18px;}
+.fl a:hover{transform:translate(2px,2px); box-shadow:2px 2px 0 var(--ink);}
+.fnote{font-size:16px; opacity:.75; line-height:1.8;}
+</style>
+</head>
+<body>
+
+<header>
+  <nav class="nav">
+    <a class="brand" href="#top"><img src="g_ohkan.png" alt=""> OhkanGame</a>
+    <ul>
+      <li><a href="#play">ルール</a></li>
+      <li><a href="#install">起動まで</a></li>
+      <li><a href="#build">ソース</a></li>
+      <li><a href="https://github.com/tobisako/RustOhkanGame">GitHub</a></li>
+    </ul>
+  </nav>
+</header>
+
+<!-- ===== HERO ===== -->
+<div class="hero" id="top">
+  <!-- BlockFrame装飾: パステルネオンのカラーブロック -->
+  <div class="deco" style="top:-70px; left:-70px; width:200px; height:200px; background:#FE90E8; border:4px solid #000; transform:rotate(12deg); box-shadow:7px 7px 0 #000;"></div>
+  <div class="deco" style="bottom:40px; left:60px; width:72px; height:72px; background:#FE90E8; clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%); filter:drop-shadow(3px 3px 0 #000);"></div>
+  <div class="deco" style="top:34px; right:34px; width:180px; height:26px; background-image:radial-gradient(circle,#000 2px,transparent 2px); background-size:16px 16px; opacity:.4;"></div>
+
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <h1>
+        OhkanGame
+        <span class="jp">王冠を頭に<mark>10個</mark>積め。</span>
+      </h1>
+      <p class="lead">
+        落ちてくる王冠を頭で受け止める。10個積んだらクリア。制限時間90秒。
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/tobisako/RustOhkanGame/releases/download/v0.9.0/OhkanGame-v0.9.0-macos-arm64.dmg">
+          DMGを落とす <span class="sub">v0.9.0</span>
+        </a>
+        <a class="btn" href="https://github.com/tobisako/RustOhkanGame">ソース <span class="sub">GitHub</span></a>
+      </div>
+      <ul class="specs">
+        <li>macOS 13+</li>
+        <li>Apple Silicon</li>
+        <li>無料</li>
+      </ul>
+    </div>
+
+    <div class="hero-media">
+      <div class="clip">
+        <div class="clip-frame">
+          <video src="clip-megami.mp4" poster="clip-megami.jpg" autoplay loop muted playsinline
+                 aria-label="自由の女神が横から突っ込んできて、9個積み上げた王冠の塔を崩していくゲーム映像"></video>
+        </div>
+        <span class="cap">9個の塔、女神一発で2個</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 遊び方 ===== -->
+<section class="sec" id="play">
+  <div class="wrap">
+    <div class="sh"><h2>ルール</h2></div>
+    <div class="play">
+      <div class="play-text">
+        <p>左右に動いて、落ちてくる王冠を頭で受け止める。<b>10個</b>積んだらクリア。制限時間は<b>90秒</b>。</p>
+        <p>巨大こけしと自由の女神が、積んだ王冠を崩しにくる。小こけしに<b>3回</b>当たったらゲームオーバー。</p>
+        <table class="tbl">
+          <thead><tr><th style="width:46%;">入力</th><th>動作</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>←</kbd> <kbd>A</kbd></td><td>左移動</td></tr>
+            <tr><td><kbd>→</kbd> <kbd>D</kbd></td><td>右移動</td></tr>
+            <tr><td>画面下のボタン</td><td>左右移動</td></tr>
+            <tr><td><kbd>Space</kbd> <kbd>Enter</kbd></td><td>開始（タイトル画面）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="play-media">
+        <div class="clip">
+          <div class="clip-frame">
+            <video src="clip-kokeshi.mp4" poster="clip-kokeshi.jpg" autoplay loop muted playsinline
+                   aria-label="巨大こけしが右上から突っ込んできて、積み上げた王冠を弾き飛ばすゲーム映像"></video>
+          </div>
+          <span class="cap">巨大こけし直撃。王冠が飛んだ</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 入れ方 ===== -->
+<section class="sec" id="install">
+  <div class="wrap">
+    <div class="sh"><h2>起動まで</h2></div>
+    <div class="steps">
+      <div class="step block">
+        <span class="n">STEP 1</span>
+        <h3>DMG を落とす</h3>
+        <p>上のボタンから <b>OhkanGame-v0.9.0-macos-arm64.dmg</b> を落とす。</p>
+      </div>
+      <div class="step block">
+        <span class="n">STEP 2</span>
+        <h3>Applications に入れる</h3>
+        <p>DMG を開いて、RustOhkanGame.app を Applications に入れる。</p>
+      </div>
+      <div class="step block">
+        <span class="n">STEP 3</span>
+        <h3>初回だけ手で開く</h3>
+        <p>初回は macOS に止められる。公証していない ad-hoc 署名だから。</p>
+      </div>
+    </div>
+
+    <div class="note">
+      システム設定 → プライバシーとセキュリティ を開いて、<b>「このまま開く」</b>を押す。
+    </div>
+
+    <div class="sec-shot">
+      <img src="security_open.png" alt="macOS のシステム設定「プライバシーとセキュリティ」画面。「お使いのMacを保護するために “RustOhkanGame.app” がブロックされました。」というメッセージと「このまま開く」ボタンが赤丸で示されている">
+      <div class="cap">システム設定 → プライバシーとセキュリティ →「このまま開く」</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ソースから動かす ===== -->
+<section class="sec build" id="build">
+  <div class="wrap">
+    <div class="sh"><h2>ソースから</h2></div>
+    <p>clone して <code>cargo run</code> すれば動く。.app の作り方は <a href="https://github.com/tobisako/RustOhkanGame#ビルド方法">README</a> に書いてある。</p>
+    <p>macOS（arm64）。フレームワークは <a href="https://github.com/not-fl3/macroquad">macroquad</a>。当たり判定や攻撃者の動きは、できるだけ AS3 版に寄せてある。</p>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer>
+  <div class="wrap">
+    <div class="fl">
+      <a href="https://github.com/tobisako/RustOhkanGame">GitHub リポジトリ</a>
+      <a href="https://github.com/tobisako/RustOhkanGame/releases">リリース一覧</a>
+    </div>
+    <div class="fnote">
+      オリジナルは 2013年の Flash（AS3）版。ここはその Rust 移植の配布ページ。
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
