@@ -55,5 +55,5 @@ touch RustOhkanGame.app
 
 ## オリジナル
 
-- 元リポジトリ: [TobiSyazaiFlash](https://github.com/tobisako/TobiSyazaiFlash)
+- 元リポジトリ: [OhkanGame](https://github.com/tobisako/OhkanGame)（Flash版のソースは `TobiSyazaiFlash/` 以下）
 - 元言語: ActionScript 3（Adobe Flash）
